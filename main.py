@@ -43,6 +43,7 @@ class RaidState(BaseModel):
 
     # 🔥 Nouveau : file d’attaques
     pending_hits: List[Dict[str, Any]] = Field(default_factory=list)
+    current_turn: Optional[str] = None
 
 
 # État global en mémoire
@@ -73,6 +74,7 @@ class RaidUpdatePayload(BaseModel):
     status: str
     difficulty_stars: int = 0
     participants: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    current_turn: Optional[str] = None
 
 
 @app.post("/raid/update")
@@ -88,29 +90,16 @@ async def raid_update(payload: RaidUpdatePayload):
     for uid, p in payload.participants.items():
         participants[uid] = RaidParticipant(
             user_id=uid,
-            # on lit d'abord username, puis les anciens champs
-            name=(
-                p.get("username")
-                or p.get("name")
-                or p.get("display_name")
-                or f"User {uid}"
-            ),
-            # pareil pour le nom du pet
-            pet=(
-                p.get("pet_name")
-                or p.get("pet_label")
-                or p.get("pet")
-                or "???"
-            ),
+            name=p.get("username") or p.get("name") or p.get("display_name") or f"User {uid}",
+            pet=p.get("pet_name") or p.get("pet_label") or p.get("pet") or "???",
             damage=int(p.get("damage", 0)),
         )
 
     if raid_state is None or raid_state.id != payload.id:
-        # Nouveau raid → on écrase tout sauf la file (on la remet vide)
         raid_state = RaidState(
             id=payload.id,
             boss_pet_id=payload.boss_pet_id,
-            boss=payload.boss_pet_id,  # tu peux envoyer un nom lisible plus tard
+            boss=payload.boss_pet_id,
             hp_max=payload.hp_max,
             hp_current=payload.hp_current,
             start=payload.start,
@@ -119,9 +108,9 @@ async def raid_update(payload: RaidUpdatePayload):
             stars=payload.difficulty_stars,
             participants=participants,
             pending_hits=[],
+            current_turn=payload.current_turn,   # ✅
         )
     else:
-        # Même raid → on met à jour les champs, mais on garde la file d'attaques
         rs = raid_state
         rs.boss_pet_id = payload.boss_pet_id
         rs.hp_max = payload.hp_max
@@ -131,7 +120,7 @@ async def raid_update(payload: RaidUpdatePayload):
         rs.status = payload.status
         rs.stars = payload.difficulty_stars
         rs.participants = participants
-        # rs.pending_hits inchangé
+        rs.current_turn = payload.current_turn  # ✅
         raid_state = rs
 
     return {"ok": True}
@@ -162,6 +151,7 @@ async def raid_state_endpoint():
         "stars": raid_state.stars,
         "start": raid_state.start,
         "end": raid_state.end,
+        "current_turn": raid_state.current_turn,   # ✅
         "participants": [
             {
                 "user_id": uid,
@@ -218,4 +208,5 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
