@@ -88,8 +88,20 @@ async def raid_update(payload: RaidUpdatePayload):
     for uid, p in payload.participants.items():
         participants[uid] = RaidParticipant(
             user_id=uid,
-            name=p.get("name") or p.get("display_name") or f"User {uid}",
-            pet=p.get("pet_label") or p.get("pet") or "???",
+            # on lit d'abord username, puis les anciens champs
+            name=(
+                p.get("username")
+                or p.get("name")
+                or p.get("display_name")
+                or f"User {uid}"
+            ),
+            # pareil pour le nom du pet
+            pet=(
+                p.get("pet_name")
+                or p.get("pet_label")
+                or p.get("pet")
+                or "???"
+            ),
             damage=int(p.get("damage", 0)),
         )
 
@@ -206,3 +218,4 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
