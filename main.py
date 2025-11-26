@@ -122,7 +122,7 @@ async def raid_chat_get(limit: int = 30):
 async def raid_update(payload: RaidUpdatePayload):
     """
     Appelée depuis le bot Discord (/cogs/raids.py) pour pousser l'état du raid.
-    On met à jour l'état global sans toucher à la file d'attaques.
+    On met à jour l'état global sans toucher au tchat ni à la file d'attaques.
     """
     global raid_state
 
@@ -148,6 +148,12 @@ async def raid_update(payload: RaidUpdatePayload):
             hp_max=int(p.get("hp_max", 0)),
         )
 
+    # 🔥 On garde l'ancien tchat SI c'est le même raid (même id)
+    old_chat: List[ChatMessage] = []
+    if raid_state is not None and raid_state.id == payload.id:
+        old_chat = list(raid_state.chat)
+
+    # Si pas de raid ou id différent → nouveau RaidState
     if raid_state is None or raid_state.id != payload.id:
         raid_state = RaidState(
             id=payload.id,
@@ -160,12 +166,15 @@ async def raid_update(payload: RaidUpdatePayload):
             status=payload.status,
             stars=payload.difficulty_stars,
             participants=participants,
-            pending_hits=[],
-            current_turn=payload.current_turn,   # ✅
+            pending_hits=[],              # la file d'attaques repart propre
+            current_turn=payload.current_turn,
+            chat=old_chat,                # ✅ on réinjecte le tchat
         )
     else:
+        # Même raid → on met juste à jour les champs volatils
         rs = raid_state
         rs.boss_pet_id = payload.boss_pet_id
+        rs.boss = payload.boss_pet_id
         rs.hp_max = payload.hp_max
         rs.hp_current = payload.hp_current
         rs.start = payload.start
@@ -173,7 +182,8 @@ async def raid_update(payload: RaidUpdatePayload):
         rs.status = payload.status
         rs.stars = payload.difficulty_stars
         rs.participants = participants
-        rs.current_turn = payload.current_turn  # ✅
+        rs.current_turn = payload.current_turn
+        # rs.chat reste inchangé
         raid_state = rs
 
     return {"ok": True}
@@ -330,6 +340,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
