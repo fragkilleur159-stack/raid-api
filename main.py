@@ -197,6 +197,14 @@ async def raid_attack(req: AttackRequest):
     if req.user_id not in raid_state.participants:
         raise HTTPException(status_code=400, detail="Tu n'es pas inscrit au raid (/raid_join).")
 
+    # 🔒 Anti-spam : refuse si une attaque est déjà en attente pour ce joueur
+    for h in raid_state.pending_hits:
+        if h.get("user_id") == req.user_id:
+            raise HTTPException(
+                status_code=429,
+                detail="Tu as déjà une attaque en attente, attends qu'elle soit résolue."
+            )
+
     hit = {
         "user_id": req.user_id,
         "ts": time.time(),
@@ -218,6 +226,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
