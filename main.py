@@ -22,6 +22,19 @@ app.add_middleware(
 #   MODÈLES Pydantic
 # =========================
 
+class ChatIn(BaseModel):
+    user_id: Optional[str] = None
+    name: str
+    content: str
+
+
+class ChatMessage(BaseModel):
+    user_id: Optional[str] = None
+    name: str
+    content: str
+    is_spectator: bool = True
+    ts: float = Field(default_factory=time.time)
+
 class RaidParticipant(BaseModel):
     user_id: str
     name: str
@@ -46,6 +59,9 @@ class RaidState(BaseModel):
     # 🔥 Nouveau : file d’attaques
     pending_hits: List[Dict[str, Any]] = Field(default_factory=list)
     current_turn: Optional[str] = None
+
+    # 🔥 Nouveau : historique du tchat
+    chat: List[ChatMessage] = Field(default_factory=list)
 
 
 # État global en mémoire
@@ -77,6 +93,29 @@ class RaidUpdatePayload(BaseModel):
     difficulty_stars: int = 0
     participants: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     current_turn: Optional[str] = None
+
+
+@app.get("/raid/chat")
+async def raid_chat_get(limit: int = 30):
+    """
+    Retourne les derniers messages du tchat du raid.
+    """
+    global raid_state
+    if raid_state is None:
+        return []
+
+    msgs = raid_state.chat[-limit:]
+    # on renvoie les plus récents en bas
+    return [
+        {
+            "user_id": m.user_id,
+            "name": m.name,
+            "content": m.content,
+            "is_spectator": m.is_spectator,
+            "ts": m.ts,
+        }
+        for m in msgs
+    ]
 
 
 @app.post("/raid/update")
@@ -136,6 +175,45 @@ async def raid_update(payload: RaidUpdatePayload):
         rs.participants = participants
         rs.current_turn = payload.current_turn  # ✅
         raid_state = rs
+
+    return {"ok": True}
+
+
+
+
+@app.post("/raid/chat")
+async def raid_chat_post(payload: ChatIn):
+    """
+    Ajoute un message dans le tchat du raid.
+    Si user_id n'est pas dans les participants → Spectateur.
+    """
+    global raid_state
+    if raid_state is None or raid_state.status != "running":
+        raise HTTPException(status_code=400, detail="Aucun raid actif.")
+
+    # On nettoie un peu le message
+    msg_txt = payload.content.strip()
+    if not msg_txt:
+        raise HTTPException(status_code=400, detail="Message vide.")
+
+    user_id = str(payload.user_id) if payload.user_id else None
+
+    # Est-ce que le joueur a rejoint le raid ?
+    is_participant = False
+    if user_id and user_id in raid_state.participants:
+        is_participant = True
+
+    chat_msg = ChatMessage(
+        user_id=user_id,
+        name=payload.name.strip()[:32] or "Inconnu",
+        content=msg_txt[:300],
+        is_spectator=not is_participant,
+    )
+
+    raid_state.chat.append(chat_msg)
+    # on limite par exemple à 100 messages max
+    if len(raid_state.chat) > 100:
+        raid_state.chat = raid_state.chat[-100:]
 
     return {"ok": True}
 
@@ -252,6 +330,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
