@@ -27,6 +27,8 @@ class RaidParticipant(BaseModel):
     name: str
     pet: str
     damage: int = 0
+    hp_current: int = 0
+    hp_max: int = 0
 
 
 class RaidState(BaseModel):
@@ -103,6 +105,8 @@ async def raid_update(payload: RaidUpdatePayload):
                 or "???"
             ),
             damage=int(p.get("damage", 0)),
+            hp_current=int(p.get("hp_current", 0)),
+            hp_max=int(p.get("hp_max", 0)),
         )
 
     if raid_state is None or raid_state.id != payload.id:
@@ -188,6 +192,8 @@ async def raid_state_endpoint():
                 "name": p.name,
                 "pet": p.pet,
                 "damage": p.damage,
+                "hp_current": p.hp_current,
+                "hp_max": p.hp_max,
             }
             for uid, p in raid_state.participants.items()
         ],
@@ -246,6 +252,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
