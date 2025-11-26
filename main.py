@@ -22,6 +22,10 @@ app.add_middleware(
 #   MODÈLES Pydantic
 # =========================
 
+class UseItemRequest(BaseModel):
+    user_id: str
+    item_id: str
+
 class ChatIn(BaseModel):
     user_id: Optional[str] = None
     name: str
@@ -93,6 +97,34 @@ class RaidUpdatePayload(BaseModel):
     difficulty_stars: int = 0
     participants: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     current_turn: Optional[str] = None
+
+
+@app.post("/raid/use_item")
+async def raid_use_item(req: UseItemRequest):
+    """
+    Ajoute une action d'utilisation d'objet dans la file d'actions du raid.
+    (Comme les attaques, mais avec item_id.)
+    """
+    global raid_state
+    if raid_state is None or raid_state.status != "running":
+        raise HTTPException(status_code=400, detail="Aucun raid actif.")
+    
+    if req.user_id not in raid_state.participants:
+        raise HTTPException(status_code=400, detail="Tu n'es pas dans le raid.")
+    
+    # empêcher le spam : une seule action par tour
+    for h in raid_state.pending_hits:
+        if h.get("user_id") == req.user_id:
+            raise HTTPException(status_code=429, detail="Une action est déjà en attente.")
+
+    raid_state.pending_hits.append({
+        "user_id": req.user_id,
+        "item_id": req.item_id,
+        "ts": time.time(),
+        "type": "item",
+    })
+    
+    return {"ok": True}
 
 
 @app.get("/raid/chat")
@@ -340,6 +372,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
