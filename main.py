@@ -88,22 +88,22 @@ async def raid_update(payload: RaidUpdatePayload):
     # On reconstruit les participants dans le bon modèle
     participants: Dict[str, RaidParticipant] = {}
     for uid, p in payload.participants.items():
-    participants[uid] = RaidParticipant(
-        user_id=uid,
-        name=(
-            p.get("username")
-            or p.get("name")
-            or p.get("display_name")
-            or f"User {uid}"
-        ),
-        pet=(
-            p.get("pet_name")
-            or p.get("pet_label")
-            or p.get("pet")
-            or "???"
-        ),
-        damage=int(p.get("damage", 0)),
-    )
+        participants[uid] = RaidParticipant(
+            user_id=uid,
+            name=(
+                p.get("username")
+                or p.get("name")
+                or p.get("display_name")
+                or f"User {uid}"
+            ),
+            pet=(
+                p.get("pet_name")
+                or p.get("pet_label")
+                or p.get("pet")
+                or "???"
+            ),
+            damage=int(p.get("damage", 0)),
+        )
 
     if raid_state is None or raid_state.id != payload.id:
         raid_state = RaidState(
@@ -246,6 +246,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
