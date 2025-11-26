@@ -6,6 +6,34 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+# 🔗 Pour lire l'inventaire des joueurs (même module que /inv)
+try:
+    from utils.inventory_store import user_items, item_label
+except Exception:
+    # Si jamais ce module n'est pas dispo sur l'API, ça évitera un crash
+    def user_items(_uid: int) -> Dict[str, int]:
+        return {}
+    def item_label(item_id: str) -> str:
+        return item_id
+
+
+# ✅ IDs des items autorisés en raid (à adapter à tes IDs réels)
+RAID_USABLE_ITEMS: Dict[str, Dict[str, str]] = {
+    # exemple, adapte aux vrais ids de ton inventaire
+    "potion_pet_petite": {
+        "effect_label": "Rend 200 PV à ton familier"
+    },
+    "potion_pet_grosse": {
+        "effect_label": "Rend 600 PV à ton familier"
+    },
+    "bomb_raid_petite": {
+        "effect_label": "Inflige 1 000 dégâts au boss"
+    },
+    "bomb_raid_grosse": {
+        "effect_label": "Inflige 3 000 dégâts au boss"
+    },
+}
+
 app = FastAPI()
 
 # CORS pour autoriser ton site GitHub Pages
@@ -97,6 +125,40 @@ class RaidUpdatePayload(BaseModel):
     difficulty_stars: int = 0
     participants: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     current_turn: Optional[str] = None
+
+
+@app.get("/raid/items")
+async def raid_get_items(user_id: str):
+    """
+    Retourne la liste des objets utilisables en raid que possède le joueur.
+    """
+    global raid_state
+    if raid_state is None or raid_state.status != "running":
+        return []
+
+    try:
+        uid_int = int(user_id)
+    except ValueError:
+        return []
+
+    # inventaire complet du joueur
+    inv = user_items(uid_int)  # {item_id: quantité}
+    if not inv:
+        return []
+
+    items = []
+    for iid, meta in RAID_USABLE_ITEMS.items():
+        qty = int(inv.get(iid, 0))
+        if qty <= 0:
+            continue
+        items.append({
+            "id": iid,
+            "name": item_label(iid),
+            "effect": meta.get("effect_label", ""),
+            "qty": qty,
+        })
+
+    return items
 
 
 @app.post("/raid/use_item")
@@ -372,6 +434,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
