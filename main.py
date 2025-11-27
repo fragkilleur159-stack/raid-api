@@ -337,21 +337,19 @@ async def raid_chat_post(payload: ChatIn):
 
 @app.get("/raid/resolve_user")
 async def resolve_user(name: str):
-    """
-    Permet de retrouver l'ID Discord d'un joueur à partir de son Pseudo#0000.
-    """
     global raid_state
     if raid_state is None or raid_state.status != "running":
         return {"error": "no_raid"}
 
     name = name.strip().lower()
 
-    # On cherche dans participants
     for uid, p in raid_state.participants.items():
-        if p.name.lower() == name:
+        p_name = p.name.lower()
+        if name in p_name:  # 🔥 match partiel au lieu de strict
             return {"user_id": uid}
 
     return {"error": "not_found"}
+
 
 
 
@@ -448,6 +446,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
