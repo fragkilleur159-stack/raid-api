@@ -403,7 +403,7 @@ async def raid_state_endpoint():
             "damage": p.damage,
             "hp_current": p.hp_current,
             "hp_max": p.hp_max,
-            "items": getattr(p, "items", {}) # ← ajoute ceci
+            "items": getattr(p, "items", {}), # ← ajoute ceci
             # 🔥 dernier objet utilisé par ce joueur
             "last_item_used": p.last_item_used,
             "last_item_value": p.last_item_value,
@@ -465,6 +465,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
