@@ -147,7 +147,14 @@ async def raid_get_items(user_id: str):
         return []
 
     # inventaire complet du joueur
-    inv = user_items(uid_int)  # {item_id: quantité}
+    inv_raw = user_items(uid_int)  # chez toi: [(item_id, qty), ...] OU parfois un dict
+
+    # 🔁 On normalise en dict {item_id: qty}
+    if isinstance(inv_raw, list):
+        inv = {iid: int(qty) for (iid, qty) in inv_raw}
+    else:
+        inv = dict(inv_raw or {})
+
     if not inv:
         return []
 
@@ -164,6 +171,7 @@ async def raid_get_items(user_id: str):
         })
 
     return items
+
 
 
 @app.post("/raid/use_item")
@@ -440,6 +448,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
