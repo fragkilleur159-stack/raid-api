@@ -21,10 +21,10 @@ except Exception:
 RAID_USABLE_ITEMS: Dict[str, Dict[str, str]] = {
     # exemple, adapte aux vrais ids de ton inventaire
     "potion_pet_petite": {
-        "effect_label": "Rend 200 PV à ton familier"
+        "effect_label": "Rend 400 PV à ton familier"
     },
     "potion_pet_grosse": {
-        "effect_label": "Rend 600 PV à ton familier"
+        "effect_label": "Rend 1200 PV à ton familier"
     },
     "bomb_raid_petite": {
         "effect_label": "Inflige 1 000 dégâts au boss"
@@ -465,6 +465,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
