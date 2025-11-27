@@ -75,6 +75,11 @@ class RaidParticipant(BaseModel):
     hp_current: int = 0
     hp_max: int = 0
 
+    # 🔥 pour les objets
+    last_item_used: Optional[str] = None
+    last_item_value: int = 0
+
+
 
 class RaidState(BaseModel):
     id: Optional[str] = None
@@ -434,6 +439,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
