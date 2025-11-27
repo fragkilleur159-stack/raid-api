@@ -374,17 +374,18 @@ async def raid_state_endpoint():
         "end": raid_state.end,
         "current_turn": raid_state.current_turn,   # ✅
         "participants": [
-            {
-                "user_id": uid,
-                "name": p.name,
-                "pet": p.pet,
-                "damage": p.damage,
-                "hp_current": p.hp_current,
-                "hp_max": p.hp_max,
-            }
-            for uid, p in raid_state.participants.items()
-        ],
-    }
+    {
+            "user_id": uid,
+            "name": p.name,
+            "pet": p.pet,
+            "damage": p.damage,
+            "hp_current": p.hp_current,
+            "hp_max": p.hp_max,
+            "items": getattr(p, "items", {})  # ← ajoute ceci
+        }
+        for uid, p in raid_state.participants.items()
+    ],
+}
 
 
 # =========================
@@ -439,6 +440,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
