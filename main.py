@@ -384,7 +384,7 @@ async def raid_state_endpoint():
             "items": getattr(p, "items", {})  # ← ajoute ceci
         }
         for uid, p in raid_state.participants.items()
-    ],
+    ]
 }
 
 
@@ -440,6 +440,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
