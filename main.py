@@ -78,6 +78,8 @@ class RaidParticipant(BaseModel):
     # 🔥 pour les objets
     last_item_used: Optional[str] = None
     last_item_value: int = 0
+    # 🔥 inventaire raid (envoyé par le bot)
+    items: Dict[str, int] = Field(default_factory=dict)
 
 
 
@@ -136,6 +138,7 @@ class RaidUpdatePayload(BaseModel):
 async def raid_get_items(user_id: str):
     """
     Retourne la liste des objets utilisables en raid que possède le joueur.
+    On privilégie les items envoyés par le bot dans raid_state.participants[uid].items.
     """
     global raid_state
     if raid_state is None or raid_state.status != "running":
@@ -146,14 +149,21 @@ async def raid_get_items(user_id: str):
     except ValueError:
         return []
 
-    # inventaire complet du joueur
-    inv_raw = user_items(uid_int)  # chez toi: [(item_id, qty), ...] OU parfois un dict
+    # 1️⃣ On tente d'utiliser les items stockés dans l'état du raid
+    participant = raid_state.participants.get(user_id)
+    inv: Dict[str, int] = {}
 
-    # 🔁 On normalise en dict {item_id: qty}
-    if isinstance(inv_raw, list):
-        inv = {iid: int(qty) for (iid, qty) in inv_raw}
+    if participant and participant.items:
+        inv = dict(participant.items or {})
     else:
-        inv = dict(inv_raw or {})
+        # 2️⃣ Fallback : lecture directe via user_items (utile en local)
+        inv_raw = user_items(uid_int)  # chez toi: [(item_id, qty), ...] OU un dict
+
+        # 🔁 Normalisation en dict {item_id: qty}
+        if isinstance(inv_raw, list):
+            inv = {iid: int(qty) for (iid, qty) in inv_raw}
+        else:
+            inv = dict(inv_raw or {})
 
     if not inv:
         return []
@@ -171,6 +181,7 @@ async def raid_get_items(user_id: str):
         })
 
     return items
+
 
 
 
@@ -253,6 +264,8 @@ async def raid_update(payload: RaidUpdatePayload):
             damage=int(p.get("damage", 0)),
             hp_current=int(p.get("hp_current", 0)),
             hp_max=int(p.get("hp_max", 0)),
+            # 🔥 on récupère les items envoyés par le bot
+            items=dict(p.get("items") or {}),
         )
 
     # 🔥 On garde l'ancien tchat SI c'est le même raid (même id)
@@ -446,6 +459,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
