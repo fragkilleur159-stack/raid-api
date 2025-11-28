@@ -91,7 +91,7 @@ class RaidState(BaseModel):
     hp_current: int = 0
     start: Optional[float] = None
     end: Optional[float] = None
-    status: str = "idle"  # idle / running / finished
+    status: str = "idle"
     stars: int = 0
     participants: Dict[str, RaidParticipant] = Field(default_factory=dict)
 
@@ -102,6 +102,7 @@ class RaidState(BaseModel):
     # 🔥 Nouveau : historique du tchat
     chat: List[ChatMessage] = Field(default_factory=list)
 
+    # 🔥 Upside Down
     upside_down_active: bool = False
     upside_down_turns_left: int = 0
 
@@ -135,6 +136,9 @@ class RaidUpdatePayload(BaseModel):
     difficulty_stars: int = 0
     participants: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     current_turn: Optional[str] = None
+    # 🔥 Upside Down, envoyé par le bot
+    upside_down_active: bool = False
+    upside_down_turns_left: int = 0
 
 
 @app.get("/raid/items")
@@ -294,7 +298,9 @@ async def raid_update(payload: RaidUpdatePayload):
             participants=participants,
             pending_hits=[],              # la file d'attaques repart propre
             current_turn=payload.current_turn,
-            chat=old_chat,                # ✅ on réinjecte le tchat
+            chat=old_chat, # ✅ on réinjecte le tchat
+            upside_down_active=payload.upside_down_active,
+            upside_down_turns_left=payload.upside_down_turns_left,
         )
     else:
         # Même raid → on met juste à jour les champs volatils
@@ -309,6 +315,8 @@ async def raid_update(payload: RaidUpdatePayload):
         rs.stars = payload.difficulty_stars
         rs.participants = participants
         rs.current_turn = payload.current_turn
+        rs.upside_down_active = payload.upside_down_active
+        rs.upside_down_turns_left = payload.upside_down_turns_left
         # rs.chat reste inchangé
         raid_state = rs
 
@@ -398,6 +406,8 @@ async def raid_state_endpoint():
         "start": raid_state.start,
         "end": raid_state.end,
         "current_turn": raid_state.current_turn,   # ✅
+        "upside_down_active": raid_state.upside_down_active,
+        "upside_down_turns_left": raid_state.upside_down_turns_left,
         "participants": [
     {
             "user_id": uid,
@@ -468,6 +478,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
