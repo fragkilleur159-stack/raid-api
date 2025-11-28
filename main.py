@@ -102,6 +102,9 @@ class RaidState(BaseModel):
     # 🔥 Nouveau : historique du tchat
     chat: List[ChatMessage] = Field(default_factory=list)
 
+    upside_down_active: bool = False
+    upside_down_turns_left: int = 0
+
 
 # État global en mémoire
 raid_state: Optional[RaidState] = None
@@ -465,6 +468,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
