@@ -140,6 +140,17 @@ class RaidUpdatePayload(BaseModel):
     upside_down_active: bool = False
     upside_down_turns_left: int = 0
 
+@app.get("/user/artifacts")
+async def user_get_artifacts(uid: str):
+    try:
+        uid_i = int(uid)
+    except:
+        return {"unlocked": False, "slots": {}}
+
+    unlocked = has_artifacts_unlocked(uid_i)
+    slots = get_artifacts(uid_i) if unlocked else {}
+    return {"unlocked": unlocked, "slots": slots}
+
 
 @app.get("/raid/items")
 async def raid_get_items(user_id: str):
@@ -478,6 +489,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
