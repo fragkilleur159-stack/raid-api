@@ -501,6 +501,14 @@ async def raid_pending_hits():
     raid_state.pending_hits = []
     return hits
 
+@app.post("/raid/consume_hits")
+async def raid_consume_hits():
+    global raid_state
+    if raid_state is None:
+        return {"ok": False}
+
+    raid_state.pending_hits = []
+    return {"ok": True}
 
 
 
