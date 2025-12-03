@@ -16,6 +16,14 @@ except Exception:
     def item_label(item_id: str) -> str:
         return item_id
 
+try:
+    from utils.artifacts_store import has_artifacts_unlocked, get_artifacts
+except Exception:
+    # fallback safe si le module n’est pas dispo côté API
+    def has_artifacts_unlocked(_uid: int) -> bool:
+        return False
+    def get_artifacts(_uid: int):
+        return {}
 
 # ✅ IDs des items autorisés en raid (à adapter à tes IDs réels)
 RAID_USABLE_ITEMS: Dict[str, Dict[str, str]] = {
@@ -489,6 +497,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
