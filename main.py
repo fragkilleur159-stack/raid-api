@@ -439,6 +439,7 @@ async def raid_state_endpoint():
             # 🔥 dernier objet utilisé par ce joueur
             "last_item_used": p.last_item_used,
             "last_item_value": p.last_item_value,
+            "artifacts_unlocked": has_artifacts_unlocked(int(uid)),
         }
         for uid, p in raid_state.participants.items()
     ]
@@ -497,6 +498,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
