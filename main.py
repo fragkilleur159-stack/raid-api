@@ -296,7 +296,7 @@ async def raid_update(payload: RaidUpdatePayload):
             # 🔥 infos d'objet reçues du bot
             last_item_used=p.get("last_item_used"),
             last_item_value=int(p.get("last_item_value", 0) or 0),
-            artifacts_unlocked = bool(p.get("artifacts_unlocked", False)),
+            artifacts_unlocked=bool(p.get("artifacts_unlocked", False)),
         )
 
     # 🔥 On garde l'ancien tchat SI c'est le même raid (même id)
@@ -500,6 +500,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
