@@ -88,6 +88,7 @@ class RaidParticipant(BaseModel):
     last_item_value: int = 0
     # 🔥 inventaire raid (envoyé par le bot)
     items: Dict[str, int] = Field(default_factory=dict)
+    artifacts_unlocked: bool = False
 
 
 
@@ -295,6 +296,7 @@ async def raid_update(payload: RaidUpdatePayload):
             # 🔥 infos d'objet reçues du bot
             last_item_used=p.get("last_item_used"),
             last_item_value=int(p.get("last_item_value", 0) or 0),
+            artifacts_unlocked = bool(pdata.get("artifacts_unlocked", False)),
         )
 
     # 🔥 On garde l'ancien tchat SI c'est le même raid (même id)
@@ -498,6 +500,7 @@ async def raid_pending_hits():
     hits = list(raid_state.pending_hits)
     raid_state.pending_hits = []
     return hits
+
 
 
 
