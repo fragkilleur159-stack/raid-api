@@ -16,14 +16,28 @@ except Exception:
     def item_label(item_id: str) -> str:
         return item_id
 
+# 🔮 Artefacts : on importe le store XP (même JSON que le bot)
 try:
-    from utils.artifacts_store import has_artifacts_unlocked, get_artifacts
+    from utils.artifacts_store import (
+        has_artifacts_unlocked,
+        get_artifacts,
+        set_artifact_slot,
+    )
 except Exception:
-    # fallback safe si le module n’est pas dispo côté API
+    # fallback au cas où ça n'existe pas sur l'API
     def has_artifacts_unlocked(_uid: int) -> bool:
         return False
-    def get_artifacts(_uid: int):
-        return {}
+
+    def get_artifacts(_uid: int) -> Dict[str, Optional[str]]:
+        return {"slot1": None, "slot2": None, "slot3": None}
+
+    def set_artifact_slot(_uid: int, _slot: str, _artifact_id: Optional[str]) -> None:
+        pass
+
+
+# Liste des IDs d'artefacts possibles (à adapter si tu en ajoutes)
+ARTIFACT_ITEM_IDS = ["art_feu", "art_glace", "art_ombre"]
+
 
 # ✅ IDs des items autorisés en raid (à adapter à tes IDs réels)
 RAID_USABLE_ITEMS: Dict[str, Dict[str, str]] = {
@@ -90,6 +104,10 @@ class RaidParticipant(BaseModel):
     items: Dict[str, int] = Field(default_factory=dict)
     artifacts_unlocked: bool = False
 
+class UserArtifactsEquipRequest(BaseModel):
+    user_id: str
+    slot: str
+    artifact_id: Optional[str] = None  # None = retirer
 
 
 class RaidState(BaseModel):
@@ -151,15 +169,73 @@ class RaidUpdatePayload(BaseModel):
 
 @app.get("/user/artifacts")
 async def user_get_artifacts(uid: str):
+    """
+    Retourne:
+      - unlocked: bool (système artefacts débloqué ?)
+      - slots: slots équipés (slot1/2/3)
+      - available: artefacts possédés dans l'inventaire (filtré sur ARTIFACT_ITEM_IDS)
+    """
     try:
         uid_i = int(uid)
-    except:
-        return {"unlocked": False, "slots": {}}
+    except ValueError:
+        return {"unlocked": False, "slots": {}, "available": {}}
 
     unlocked = has_artifacts_unlocked(uid_i)
-    slots = get_artifacts(uid_i) if unlocked else {}
-    return {"unlocked": unlocked, "slots": slots}
+    slots = get_artifacts(uid_i) if unlocked else {
+        "slot1": None,
+        "slot2": None,
+        "slot3": None,
+    }
 
+    inv = user_items(uid_i) or {}
+    available: Dict[str, Dict[str, Any]] = {}
+    for art_id in ARTIFACT_ITEM_IDS:
+        qty = int(inv.get(art_id, 0) or 0)
+        if qty > 0:
+            available[art_id] = {
+                "label": item_label(art_id),
+                "qty": qty,
+            }
+
+    return {"unlocked": unlocked, "slots": slots, "available": available}
+
+@app.post("/user/artifacts/equip")
+async def user_equip_artifact(req: UserArtifactsEquipRequest):
+    """
+    Change l'artefact d'un slot pour un joueur.
+    """
+    try:
+        uid_i = int(req.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="user_id invalide")
+
+    if req.slot not in ("slot1", "slot2", "slot3"):
+        raise HTTPException(status_code=400, detail="Slot invalide")
+
+    # Vérifier que le système est débloqué
+    if not has_artifacts_unlocked(uid_i):
+        raise HTTPException(
+            status_code=403,
+            detail="Tu n'as pas encore débloqué les artefacts."
+        )
+
+    art_id = req.artifact_id
+
+    if art_id is not None:
+        if art_id not in ARTIFACT_ITEM_IDS:
+            raise HTTPException(status_code=400, detail="Artefact inconnu.")
+        inv = user_items(uid_i) or {}
+        if int(inv.get(art_id, 0) or 0) <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Tu ne possèdes pas cet artefact."
+            )
+
+    # Sauvegarde dans le JSON XP
+    set_artifact_slot(uid_i, req.slot, art_id)
+
+    slots = get_artifacts(uid_i)
+    return {"ok": True, "slots": slots}
 
 @app.get("/raid/items")
 async def raid_get_items(user_id: str):
@@ -509,6 +585,7 @@ async def raid_consume_hits():
 
     raid_state.pending_hits = []
     return {"ok": True}
+
 
 
 
