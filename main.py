@@ -180,7 +180,13 @@ async def user_get_artifacts(uid: str):
     except ValueError:
         return {"unlocked": False, "slots": {}, "available": {}}
 
-    unlocked = has_artifacts_unlocked(uid_i)
+    # déterminer unlocked depuis raid_state
+    participant = raid_state.participants.get(str(uid_i))
+    if participant:
+        unlocked = participant.artifacts_unlocked
+    else:
+        unlocked = False
+
     slots = get_artifacts(uid_i) if unlocked else {
         "slot1": None,
         "slot2": None,
@@ -585,6 +591,7 @@ async def raid_consume_hits():
 
     raid_state.pending_hits = []
     return {"ok": True}
+
 
 
 
