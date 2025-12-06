@@ -102,7 +102,7 @@ class RaidParticipant(BaseModel):
     last_item_value: int = 0
     # 🔥 inventaire raid (envoyé par le bot)
     items: Dict[str, int] = Field(default_factory=dict)
-    artifacts_unlocked: bool = False
+    participant.artifacts_unlocked = has_artifacts_unlocked(user_id)
 
 class UserArtifactsEquipRequest(BaseModel):
     user_id: str
@@ -591,6 +591,7 @@ async def raid_consume_hits():
 
     raid_state.pending_hits = []
     return {"ok": True}
+
 
 
 
