@@ -487,12 +487,12 @@ async def resolve_user(name: str):
 async def raid_list_endpoint():
     """
     Renvoie la liste des raids disponibles pour l'écran de sélection.
-    Pour l'instant : 0 ou 1 raid (celui dans raid_state).
+    Pour l'instant : 0 ou 1 raid (celui dans raid_state), uniquement s'il est en cours.
     """
     global raid_state
 
-    if raid_state is None or raid_state.status == "idle":
-        # aucune raid actif
+    # pas de raid, ou raid pas en cours => rien à afficher
+    if raid_state is None or raid_state.status != "running":
         return []
 
     rs = raid_state
@@ -500,7 +500,7 @@ async def raid_list_endpoint():
     return [{
         "id": rs.id or "default",
         "boss_pet_id": rs.boss_pet_id,
-        "boss": rs.boss,              # nom lisible si tu l'utilises
+        "boss": rs.boss,
         "hp_current": rs.hp_current,
         "hp_max": rs.hp_max,
         "stars": rs.stars,
@@ -508,6 +508,7 @@ async def raid_list_endpoint():
         "start": rs.start,
         "end": rs.end,
     }]
+
 
 
 
@@ -625,6 +626,7 @@ async def raid_consume_hits():
 
     raid_state.pending_hits = []
     return {"ok": True}
+
 
 
 
