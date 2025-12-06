@@ -102,7 +102,8 @@ class RaidParticipant(BaseModel):
     last_item_value: int = 0
     # 🔥 inventaire raid (envoyé par le bot)
     items: Dict[str, int] = Field(default_factory=dict)
-    participant.artifacts_unlocked = has_artifacts_unlocked(user_id)
+    artifacts_unlocked: bool = False
+    
 
 class UserArtifactsEquipRequest(BaseModel):
     user_id: str
@@ -180,18 +181,17 @@ async def user_get_artifacts(uid: str):
     except ValueError:
         return {"unlocked": False, "slots": {}, "available": {}}
 
-    # déterminer unlocked depuis raid_state
-    participant = raid_state.participants.get(str(uid_i))
-    if participant:
-        unlocked = participant.artifacts_unlocked
-    else:
-        unlocked = False
+    # ✅ on prend la vérité depuis le store d'artefacts
+    unlocked = has_artifacts_unlocked(uid_i)
 
-    slots = get_artifacts(uid_i) if unlocked else {
-        "slot1": None,
-        "slot2": None,
-        "slot3": None,
-    }
+    if unlocked:
+        slots = get_artifacts(uid_i)
+    else:
+        slots = {
+            "slot1": None,
+            "slot2": None,
+            "slot3": None,
+        }
 
     inv = user_items(uid_i) or {}
     available: Dict[str, Dict[str, Any]] = {}
@@ -204,6 +204,7 @@ async def user_get_artifacts(uid: str):
             }
 
     return {"unlocked": unlocked, "slots": slots, "available": available}
+
 
 @app.post("/user/artifacts/equip")
 async def user_equip_artifact(req: UserArtifactsEquipRequest):
@@ -591,6 +592,7 @@ async def raid_consume_hits():
 
     raid_state.pending_hits = []
     return {"ok": True}
+
 
 
 
