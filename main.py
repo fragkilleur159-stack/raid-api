@@ -323,6 +323,7 @@ async def raid_use_item(req: UseItemRequest):
     return {"ok": True}
 
 
+
 @app.get("/raid/chat")
 async def raid_chat_get(limit: int = 30):
     """
@@ -565,6 +566,7 @@ async def raid_attack(req: AttackRequest):
     hit = {
         "user_id": req.user_id,
         "ts": time.time(),
+        "type": "attack",
     }
     raid_state.pending_hits.append(hit)
     return {"ok": True}
@@ -584,14 +586,21 @@ async def raid_pending_hits():
     raid_state.pending_hits = []
     return hits
 
+
 @app.post("/raid/consume_hits")
 async def raid_consume_hits():
+    """
+    Compatibilité / debug. Normalement, on n'en a plus besoin,
+    car /raid/pending_hits vide déjà la file.
+    """
     global raid_state
     if raid_state is None:
         return {"ok": False}
 
     raid_state.pending_hits = []
     return {"ok": True}
+
+
 
 
 
