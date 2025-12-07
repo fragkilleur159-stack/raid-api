@@ -135,7 +135,6 @@ class RaidState(BaseModel):
     upside_down_turns_left: int = 0
 
 
-raid_state: Optional[RaidState] = {}  # garde le comportement actuel (dernier raid reçu)
 raid_states: Dict[str, RaidState] = {}  # nouveau : tous les raids en mémoire
 
 
@@ -622,6 +621,7 @@ async def raid_consume_hits():
 
     raid_state.pending_hits = []
     return {"ok": True}
+
 
 
 
