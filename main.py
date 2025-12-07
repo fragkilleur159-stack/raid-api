@@ -74,13 +74,18 @@ app.add_middleware(
 
 class UseItemRequest(BaseModel):
     user_id: str
+    raid_id: str
     item_id: str
+
+class AttackRequest(BaseModel):
+    user_id: str
+    raid_id: str
 
 class ChatIn(BaseModel):
     user_id: Optional[str] = None
+    raid_id: str
     name: str
     content: str
-
 
 class ChatMessage(BaseModel):
     user_id: Optional[str] = None
@@ -103,7 +108,6 @@ class RaidParticipant(BaseModel):
     # 🔥 inventaire raid (envoyé par le bot)
     items: Dict[str, int] = Field(default_factory=dict)
     artifacts_unlocked: bool = False
-    
 
 class UserArtifactsEquipRequest(BaseModel):
     user_id: str
@@ -112,7 +116,7 @@ class UserArtifactsEquipRequest(BaseModel):
 
 
 class RaidState(BaseModel):
-    id: Optional[str] = None
+    id: str
     boss_pet_id: Optional[str] = None
     boss: Optional[str] = None  # nom lisible (optionnel)
     hp_max: int = 0
@@ -123,11 +127,11 @@ class RaidState(BaseModel):
     stars: int = 0
     participants: Dict[str, RaidParticipant] = Field(default_factory=dict)
 
-    # 🔥 Nouveau : file d’attaques
+    # 🔥 file d’actions
     pending_hits: List[Dict[str, Any]] = Field(default_factory=list)
     current_turn: Optional[str] = None
 
-    # 🔥 Nouveau : historique du tchat
+    # 🔥 tchat par raid
     chat: List[ChatMessage] = Field(default_factory=list)
 
     # 🔥 Upside Down
@@ -135,9 +139,19 @@ class RaidState(BaseModel):
     upside_down_turns_left: int = 0
 
 
-raid_states: Dict[str, RaidState] = {}  # nouveau : tous les raids en mémoire
-raid_state: Optional[RaidState] = None   # compatibilité : dernier raid
+# ✅ Multi-raid : TOUS les raids en mémoire
+raid_states: Dict[str, RaidState] = {}
 
+
+def get_raid_or_none(raid_id: str) -> Optional[RaidState]:
+    return raid_states.get(str(raid_id))
+
+
+def get_raid_or_404(raid_id: str) -> RaidState:
+    raid = get_raid_or_none(raid_id)
+    if raid is None:
+        raise HTTPException(status_code=404, detail="Raid inconnu.")
+    return raid
 
 
 # =========================
@@ -149,110 +163,79 @@ async def root():
     return {"ok": True, "message": "Raid API up"}
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-class RaidUpdatePayload(BaseModel):
-    id: Optional[str] = None
-    boss_pet_id: Optional[str] = None
-    hp_max: int
-    hp_current: int
-    start: Optional[float] = None
-    end: Optional[float] = None
-    status: str
-    difficulty_stars: int = 0
-    participants: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
-    current_turn: Optional[str] = None
-    # 🔥 Upside Down, envoyé par le bot
-    upside_down_active: bool = False
-    upside_down_turns_left: int = 0
-
-@app.get("/user/artifacts")
-async def user_get_artifacts(uid: str):
+# ---------- LISTE DES RAIDS ----------
+@app.get("/raid/list")
+async def raid_list():
     """
-    Retourne:
-      - unlocked: bool (système artefacts débloqué ?)
-      - slots: slots équipés (slot1/2/3)
-      - available: artefacts possédés dans l'inventaire (filtré sur ARTIFACT_ITEM_IDS)
+    Retourne la liste des raids connus (en cours ou terminés).
     """
-    try:
-        uid_i = int(uid)
-    except ValueError:
-        return {"unlocked": False, "slots": {}, "available": {}}
+    res = []
+    for r in raid_states.values():
+        res.append({
+            "id": r.id,
+            "boss_pet_id": r.boss_pet_id,
+            "boss": r.boss,
+            "hp_max": r.hp_max,
+            "hp_current": r.hp_current,
+            "status": r.status,
+            "stars": r.stars,
+            "start": r.start,
+            "end": r.end,
+            "label": r.boss or f"Raid {r.id}",
+        })
+    # on trie du plus récent au plus ancien
+    res.sort(key=lambda x: (x.get("start") or 0), reverse=True)
+    return res
 
-    # ✅ on prend la vérité depuis le store d'artefacts
-    unlocked = has_artifacts_unlocked(uid_i)
 
-    if unlocked:
-        slots = get_artifacts(uid_i)
-    else:
-        slots = {
-            "slot1": None,
-            "slot2": None,
-            "slot3": None,
+# ---------- ÉTAT D'UN RAID ----------
+@app.get("/raid/state")
+async def raid_state_endpoint(raid_id: str = Query(...)):
+    """
+    État complet d'un raid donné (pour le viewer).
+    """
+    raid = get_raid_or_none(raid_id)
+    if raid is None:
+        return {
+            "status": "idle",
+            "boss": None,
+            "boss_pet_id": None,
+            "hp_max": 0,
+            "hp_current": 0,
+            "participants": [],
+            "stars": 0,
+            "start": None,
+            "end": None,
+            "current_turn": None,
+            "upside_down_active": False,
+            "upside_down_turns_left": 0,
         }
 
-    inv = user_items(uid_i) or {}
-    available: Dict[str, Dict[str, Any]] = {}
-    for art_id in ARTIFACT_ITEM_IDS:
-        qty = int(inv.get(art_id, 0) or 0)
-        if qty > 0:
-            available[art_id] = {
-                "label": item_label(art_id),
-                "qty": qty,
-            }
+    return {
+        "id": raid.id,
+        "status": raid.status,
+        "boss": raid.boss,
+        "boss_pet_id": raid.boss_pet_id,
+        "hp_max": raid.hp_max,
+        "hp_current": raid.hp_current,
+        "participants": list(raid.participants.values()),
+        "stars": raid.stars,
+        "start": raid.start,
+        "end": raid.end,
+        "current_turn": raid.current_turn,
+        "upside_down_active": raid.upside_down_active,
+        "upside_down_turns_left": raid.upside_down_turns_left,
+    }
 
-    return {"unlocked": unlocked, "slots": slots, "available": available}
 
-
-@app.post("/user/artifacts/equip")
-async def user_equip_artifact(req: UserArtifactsEquipRequest):
-    """
-    Change l'artefact d'un slot pour un joueur.
-    """
-    try:
-        uid_i = int(req.user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="user_id invalide")
-
-    if req.slot not in ("slot1", "slot2", "slot3"):
-        raise HTTPException(status_code=400, detail="Slot invalide")
-
-    # Vérifier que le système est débloqué
-    if not has_artifacts_unlocked(uid_i):
-        raise HTTPException(
-            status_code=403,
-            detail="Tu n'as pas encore débloqué les artefacts."
-        )
-
-    art_id = req.artifact_id
-
-    if art_id is not None:
-        if art_id not in ARTIFACT_ITEM_IDS:
-            raise HTTPException(status_code=400, detail="Artefact inconnu.")
-        inv = user_items(uid_i) or {}
-        if int(inv.get(art_id, 0) or 0) <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Tu ne possèdes pas cet artefact."
-            )
-
-    # Sauvegarde dans le JSON XP
-    set_artifact_slot(uid_i, req.slot, art_id)
-
-    slots = get_artifacts(uid_i)
-    return {"ok": True, "slots": slots}
-
+# ---------- ITEMS D'UN JOUEUR DANS UN RAID ----------
 @app.get("/raid/items")
-async def raid_get_items(user_id: str):
+async def raid_get_items(raid_id: str, user_id: str):
     """
-    Retourne la liste des objets utilisables en raid que possède le joueur.
-    On privilégie les items envoyés par le bot dans raid_state.participants[uid].items.
+    Items de raid pour UN raid précis.
     """
-    global raid_state
-    if raid_state is None or raid_state.status != "running":
+    raid = get_raid_or_none(raid_id)
+    if raid is None or raid.status != "running":
         return []
 
     try:
@@ -260,17 +243,14 @@ async def raid_get_items(user_id: str):
     except ValueError:
         return []
 
-    # 1️⃣ On tente d'utiliser les items stockés dans l'état du raid
-    participant = raid_state.participants.get(user_id)
+    participant = raid.participants.get(str(user_id))
     inv: Dict[str, int] = {}
 
     if participant and participant.items:
         inv = dict(participant.items or {})
     else:
-        # 2️⃣ Fallback : lecture directe via user_items (utile en local)
-        inv_raw = user_items(uid_int)  # chez toi: [(item_id, qty), ...] OU un dict
+        inv_raw = user_items(uid_int)
 
-        # 🔁 Normalisation en dict {item_id: qty}
         if isinstance(inv_raw, list):
             inv = {iid: int(qty) for (iid, qty) in inv_raw}
         else:
@@ -294,48 +274,75 @@ async def raid_get_items(user_id: str):
     return items
 
 
-
-
+# ---------- UTILISATION D'OBJET ----------
 @app.post("/raid/use_item")
 async def raid_use_item(req: UseItemRequest):
-    """
-    Ajoute une action d'utilisation d'objet dans la file d'actions du raid.
-    (Comme les attaques, mais avec item_id.)
-    """
-    global raid_state
-    if raid_state is None or raid_state.status != "running":
-        raise HTTPException(status_code=400, detail="Aucun raid actif.")
-    
-    if req.user_id not in raid_state.participants:
-        raise HTTPException(status_code=400, detail="Tu n'es pas dans le raid.")
-    
+    raid = get_raid_or_404(req.raid_id)
+
+    if raid.status != "running":
+        raise HTTPException(status_code=400, detail="Raid non actif.")
+
+    if req.user_id not in raid.participants:
+        raise HTTPException(status_code=400, detail="Tu n'es pas dans ce raid.")
+
     # empêcher le spam : une seule action par tour
-    for h in raid_state.pending_hits:
+    for h in raid.pending_hits:
         if h.get("user_id") == req.user_id:
             raise HTTPException(status_code=429, detail="Une action est déjà en attente.")
 
-    raid_state.pending_hits.append({
+    raid.pending_hits.append({
         "user_id": req.user_id,
         "item_id": req.item_id,
         "ts": time.time(),
         "type": "item",
     })
-    
+
     return {"ok": True}
 
 
+# ---------- ATTAQUE ----------
+@app.post("/raid/attack")
+async def raid_attack(req: AttackRequest):
+    raid = get_raid_or_404(req.raid_id)
 
+    if raid.status != "running":
+        raise HTTPException(status_code=400, detail="Raid non actif.")
+
+    if req.user_id not in raid.participants:
+        raise HTTPException(status_code=400, detail="Tu n'es pas dans ce raid.")
+
+    # une seule action par tour
+    for h in raid.pending_hits:
+        if h.get("user_id") == req.user_id:
+            raise HTTPException(status_code=429, detail="Tu as déjà une action en attente.")
+
+    raid.pending_hits.append({
+        "user_id": req.user_id,
+        "ts": time.time(),
+        "type": "attack",
+    })
+
+    return {"ok": True}
+
+
+# ---------- PENDING HITS (appelé par le bot) ----------
+@app.get("/raid/pending_hits")
+async def raid_pending_hits(raid_id: str):
+    raid = get_raid_or_404(raid_id)
+
+    hits = list(raid.pending_hits)
+    raid.pending_hits.clear()
+    return hits
+
+
+# ---------- TCHAT ----------
 @app.get("/raid/chat")
-async def raid_chat_get(limit: int = 30):
-    """
-    Retourne les derniers messages du tchat du raid.
-    """
-    global raid_state
-    if raid_state is None:
+async def raid_chat_get(raid_id: str, limit: int = 30):
+    raid = get_raid_or_none(raid_id)
+    if raid is None:
         return []
 
-    msgs = raid_state.chat[-limit:]
-    # on renvoie les plus récents en bas
+    msgs = raid.chat[-limit:]
     return [
         {
             "user_id": m.user_id,
@@ -348,16 +355,83 @@ async def raid_chat_get(limit: int = 30):
     ]
 
 
+@app.post("/raid/chat")
+async def raid_chat_post(payload: ChatIn):
+    raid = get_raid_or_404(payload.raid_id)
+
+    is_spectator = True
+    if payload.user_id is not None:
+        if str(payload.user_id) in raid.participants:
+            is_spectator = False
+
+    msg = ChatMessage(
+        user_id=payload.user_id,
+        name=payload.name,
+        content=payload.content[:300],
+        is_spectator=is_spectator,
+    )
+    raid.chat.append(msg)
+    raid.chat = raid.chat[-200:]
+
+    return {"ok": True}
+
+
+# ---------- RESOLVE USER (pour trouver l’ID depuis le pseudo) ----------
+@app.get("/raid/resolve_user")
+async def raid_resolve_user(raid_id: str, name: str):
+    raid = get_raid_or_none(raid_id)
+    if raid is None:
+        return {"user_id": None}
+
+    name = (name or "").strip().lower()
+    if not name:
+        return {"user_id": None}
+
+    for p in raid.participants.values():
+        if name in (p.name or "").lower():
+            return {"user_id": p.user_id}
+
+    return {"user_id": None}
+
+
+# ---------- UPDATE DEPUIS LE BOT ----------
+class RaidUpdateParticipant(BaseModel):
+    username: Optional[str] = None
+    pet_id: Optional[str] = None
+    damage: int = 0
+    hp_current: int = 0
+    hp_max: int = 0
+    last_item_used: Optional[str] = None
+    last_item_value: int = 0
+    items: Dict[str, int] = Field(default_factory=dict)
+    artifacts_unlocked: bool = False
+
+
+class RaidUpdatePayload(BaseModel):
+    id: str
+    boss_pet_id: Optional[str] = None
+    boss_name: Optional[str] = None
+    hp_max: int = 0
+    hp_current: int = 0
+    start: Optional[float] = None
+    end: Optional[float] = None
+    status: str = "idle"
+    stars: int = 0
+    current_turn: Optional[str] = None
+    upside_down_active: bool = False
+    upside_down_turns_left: int = 0
+    participants: Dict[str, RaidUpdateParticipant] = Field(default_factory=dict)
+
+
 @app.post("/raid/update")
 async def raid_update(payload: RaidUpdatePayload):
-    global raid_state, raid_states
-
     raid_id = str(payload.id)
 
+    # --- reconstruire participants ---
     participants: Dict[str, RaidParticipant] = {}
     for uid, pdata in payload.participants.items():
         uid_str = str(uid)
-        participants[uid_str] = RaidParticipant(
+        p = RaidParticipant(
             user_id=uid_str,
             name=pdata.username or f"Joueur {uid_str}",
             pet=pdata.pet_id or "???",
@@ -369,261 +443,40 @@ async def raid_update(payload: RaidUpdatePayload):
             items=pdata.items or {},
             artifacts_unlocked=bool(pdata.artifacts_unlocked),
         )
+        participants[uid_str] = p
 
     existing = raid_states.get(raid_id)
 
-    if existing is None:
-        rs = RaidState(
-            id=raid_id,
-            boss_pet_id=payload.boss_pet_id,
-            boss=payload.boss_pet_id,
-            hp_max=payload.hp_max,
-            hp_current=payload.hp_current,
-            start=payload.start,
-            end=payload.end,
-            status=payload.status,
-            stars=payload.difficulty_stars,
-            participants=participants,
-            pending_hits=[],
-            current_turn=payload.current_turn,
-            chat=[],
-            upside_down_active=payload.upside_down_active,
-            upside_down_turns_left=payload.upside_down_turns_left,
-        )
+    # on garde le chat et les pending_hits si le raid existe déjà
+    if existing:
+        chat = existing.chat
+        pending_hits = existing.pending_hits
     else:
-        rs = existing
-        rs.boss_pet_id = payload.boss_pet_id
-        rs.boss = payload.boss_pet_id
-        rs.hp_max = payload.hp_max
-        rs.hp_current = payload.hp_current
-        rs.start = payload.start
-        rs.end = payload.end
-        rs.status = payload.status
-        rs.stars = payload.difficulty_stars
-        rs.participants = participants
-        rs.current_turn = payload.current_turn
-        rs.upside_down_active = payload.upside_down_active
-        rs.upside_down_turns_left = payload.upside_down_turns_left
+        chat = []
+        pending_hits = []
 
-    raid_states[raid_id] = rs
-    raid_state = rs  # pour compatibilité avec l’ancien code
-
-    return {"ok": True}
-
-
-
-
-
-
-@app.post("/raid/chat")
-async def raid_chat_post(payload: ChatIn):
-    """
-    Ajoute un message dans le tchat du raid.
-    Si user_id n'est pas dans les participants → Spectateur.
-    """
-    global raid_state
-    if raid_state is None or raid_state.status != "running":
-        raise HTTPException(status_code=400, detail="Aucun raid actif.")
-
-    # On nettoie un peu le message
-    msg_txt = payload.content.strip()
-    if not msg_txt:
-        raise HTTPException(status_code=400, detail="Message vide.")
-
-    user_id = str(payload.user_id) if payload.user_id else None
-
-    # Est-ce que le joueur a rejoint le raid ?
-    is_participant = False
-    if user_id and user_id in raid_state.participants:
-        is_participant = True
-
-    chat_msg = ChatMessage(
-        user_id=user_id,
-        name=payload.name.strip()[:32] or "Inconnu",
-        content=msg_txt[:300],
-        is_spectator=not is_participant,
+    raid = RaidState(
+        id=raid_id,
+        boss_pet_id=payload.boss_pet_id,
+        boss=payload.boss_name,
+        hp_max=payload.hp_max,
+        hp_current=payload.hp_current,
+        start=payload.start,
+        end=payload.end,
+        status=payload.status,
+        stars=payload.stars,
+        participants=participants,
+        current_turn=payload.current_turn,
+        upside_down_active=payload.upside_down_active,
+        upside_down_turns_left=payload.upside_down_turns_left,
+        chat=chat,
+        pending_hits=pending_hits,
     )
 
-    raid_state.chat.append(chat_msg)
-    # on limite par exemple à 100 messages max
-    if len(raid_state.chat) > 100:
-        raid_state.chat = raid_state.chat[-100:]
-
+    raid_states[raid_id] = raid
     return {"ok": True}
 
 
-@app.get("/raid/resolve_user")
-async def resolve_user(name: str):
-    global raid_state
-    if raid_state is None or raid_state.status != "running":
-        return {"error": "no_raid"}
-
-    name = name.strip().lower()
-
-    for uid, p in raid_state.participants.items():
-        p_name = p.name.lower()
-        if name in p_name:  # 🔥 match partiel au lieu de strict
-            return {"user_id": uid}
-
-    return {"error": "not_found"}
-
-
-@app.get("/raid/list")
-async def raid_list():
-    """
-    Retourne la liste des raids 'running' connus par l'API.
-    Utilisé par ta page de sélection des raids.
-    """
-    out = []
-    for rs in raid_states.values():
-        if rs.status != "running":
-            continue
-
-        out.append({
-            "id": rs.id,
-            "boss_pet_id": rs.boss_pet_id,
-            "hp_current": rs.hp_current,
-            "hp_max": rs.hp_max,
-            "stars": rs.stars,
-            "start": rs.start,
-            "end": rs.end,
-        })
-
-    # tri optionnel par date de début (du plus récent au plus ancien)
-    out.sort(key=lambda r: r["start"], reverse=True)
-    return out
-
-
-
-
-
-
-
-@app.get("/raid/state")
-async def raid_state_endpoint(raid_id: Optional[str] = None):
-    """
-    État d’un raid pour le viewer.
-    - si raid_id est donné → on renvoie CETTE partie
-    - sinon → on renvoie le dernier raid (compat)
-    """
-    global raid_state, raid_states
-
-    rs: Optional[RaidState] = None
-
-    if raid_id:
-        rs = raid_states.get(str(raid_id))
-    else:
-        rs = raid_state
-
-    if rs is None:
-        return {
-            "status": "idle",
-            "boss": None,
-            "hp_current": 0,
-            "hp_max": 0,
-            "stars": 0,
-            "start": None,
-            "end": None,
-            "participants": [],
-        }
-
-    return {
-        "status": rs.status,
-        "boss": rs.boss_pet_id,
-        "hp_current": rs.hp_current,
-        "hp_max": rs.hp_max,
-        "stars": rs.stars,
-        "start": rs.start,
-        "end": rs.end,
-        "current_turn": rs.current_turn,
-        "upside_down_active": rs.upside_down_active,
-        "upside_down_turns_left": rs.upside_down_turns_left,
-        "participants": [
-            {
-                "user_id": uid,
-                "name": p.name,
-                "pet": p.pet,
-                "damage": p.damage,
-                "hp_current": p.hp_current,
-                "hp_max": p.hp_max,
-                "items": getattr(p, "items", {}),
-                "last_item_used": p.last_item_used,
-                "last_item_value": p.last_item_value,
-                "artifacts_unlocked": has_artifacts_unlocked(int(uid)),
-            }
-            for uid, p in rs.participants.items()
-        ],
-    }
-
-
-
-# =========================
-#   ATTAQUES (depuis le site)
-# =========================
-
-class AttackRequest(BaseModel):
-    user_id: str
-
-
-@app.post("/raid/attack")
-async def raid_attack(req: AttackRequest):
-    """
-    Appelée par le bouton "Attaquer" sur le site.
-    On NE calcule PAS les dégâts ici, on stocke juste l'intention d'attaque.
-    Le bot viendra consommer ces "hits" via /raid/pending_hits.
-    """
-    global raid_state
-    if raid_state is None or raid_state.status != "running":
-        raise HTTPException(status_code=400, detail="Aucun raid en cours")
-
-    # Vérifie que le joueur est bien dans le raid (a fait /raid_join)
-    if req.user_id not in raid_state.participants:
-        raise HTTPException(status_code=400, detail="Tu n'es pas inscrit au raid (/raid_join).")
-
-    # 🔒 Anti-spam : refuse si une attaque est déjà en attente pour ce joueur
-    for h in raid_state.pending_hits:
-        if h.get("user_id") == req.user_id:
-            raise HTTPException(
-                status_code=429,
-                detail="Tu as déjà une attaque en attente, attends qu'elle soit résolue."
-            )
-
-    hit = {
-        "user_id": req.user_id,
-        "ts": time.time(),
-        "type": "attack",
-    }
-    raid_state.pending_hits.append(hit)
-    return {"ok": True}
-
-
-@app.get("/raid/pending_hits")
-async def raid_pending_hits():
-    """
-    Appelée par le bot Discord pour récupérer les attaques en attente.
-    On renvoie la liste, puis on la vide.
-    """
-    global raid_state
-    if raid_state is None:
-        return []
-
-    hits = list(raid_state.pending_hits)
-    raid_state.pending_hits = []
-    return hits
-
-
-@app.post("/raid/consume_hits")
-async def raid_consume_hits():
-    """
-    Compatibilité / debug. Normalement, on n'en a plus besoin,
-    car /raid/pending_hits vide déjà la file.
-    """
-    global raid_state
-    if raid_state is None:
-        return {"ok": False}
-
-    raid_state.pending_hits = []
-    return {"ok": True}
 
 
 
