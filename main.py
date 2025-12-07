@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 # 🔗 Pour lire l'inventaire des joueurs (même module que /inv)
 try:
-    from utils.inventory_store import user_items, item_label,
+    from utils.inventory_store import user_items, item_label
 except Exception:
     # Si jamais ce module n'est pas dispo sur l'API, ça évitera un crash
     def user_items(_uid: int) -> Dict[str, int]:
@@ -475,6 +475,7 @@ async def raid_update(payload: RaidUpdatePayload):
 
     raid_states[raid_id] = raid
     return {"ok": True}
+
 
 
 
