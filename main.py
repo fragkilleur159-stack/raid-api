@@ -135,8 +135,9 @@ class RaidState(BaseModel):
     upside_down_turns_left: int = 0
 
 
-# État global en mémoire
-raid_state: Optional[RaidState] = None
+raid_state: Optional[RaidState] = None  # garde le comportement actuel (dernier raid reçu)
+raid_states: Dict[str, RaidState] = {}  # nouveau : tous les raids en mémoire
+
 
 
 # =========================
@@ -349,49 +350,38 @@ async def raid_chat_get(limit: int = 30):
 
 @app.post("/raid/update")
 async def raid_update(payload: RaidUpdatePayload):
-    """
-    Appelée depuis le bot Discord (/cogs/raids.py) pour pousser l'état du raid.
-    On met à jour l'état global sans toucher au tchat ni à la file d'attaques.
-    """
-    global raid_state
+    global raid_state, raid_states
 
-    # On reconstruit les participants dans le bon modèle
+    raid_id = str(payload.id)
+
+    # --- reconstruction des participants comme avant ---
     participants: Dict[str, RaidParticipant] = {}
-    for uid, p in payload.participants.items():
-        participants[uid] = RaidParticipant(
-            user_id=uid,
-            name=(
-                p.get("username")
-                or p.get("name")
-                or p.get("display_name")
-                or f"User {uid}"
-            ),
-            pet=(
-                p.get("pet_name")
-                or p.get("pet_label")
-                or p.get("pet")
-                or "???"
-            ),
-            damage=int(p.get("damage", 0)),
-            hp_current=int(p.get("hp_current", 0)),
-            hp_max=int(p.get("hp_max", 0)),
-            # 🔥 on récupère les items envoyés par le bot
-            items=dict(p.get("items") or {}),
-            # 🔥 infos d'objet reçues du bot
-            last_item_used=p.get("last_item_used"),
-            last_item_value=int(p.get("last_item_value", 0) or 0),
-            artifacts_unlocked=bool(p.get("artifacts_unlocked", False)),
+    for uid, pdata in payload.participants.items():
+        uid_str = str(uid)
+        p = RaidParticipant(
+            user_id=uid_str,
+            name=pdata.username or f"Joueur {uid_str}",
+            pet=pdata.pet_id or "???",
+            damage=pdata.damage or 0,
+            hp_current=pdata.hp_current or 0,
+            hp_max=pdata.hp_max or 0,
+            last_item_used=pdata.last_item_used,
+            last_item_value=pdata.last_item_value or 0,
+            items=pdata.items or {},
+            artifacts_unlocked=bool(pdata.artifacts_unlocked),
         )
+        participants[uid_str] = p
 
-    # 🔥 On garde l'ancien tchat SI c'est le même raid (même id)
-    old_chat: List[ChatMessage] = []
-    if raid_state is not None and raid_state.id == payload.id:
-        old_chat = list(raid_state.chat)
+    # --- on regarde si on avait déjà ce raid ---
+    existing: Optional[RaidState] = raid_states.get(raid_id)
 
-    # Si pas de raid ou id différent → nouveau RaidState
-    if raid_state is None or raid_state.id != payload.id:
-        raid_state = RaidState(
-            id=payload.id,
+    if existing is None or existing.id != raid_id:
+        # Nouveau raid : on part d'une base propre,
+        # mais on garde le tchat si jamais on veut le réutiliser
+        old_chat = existing.chat if existing else []
+
+        rs = RaidState(
+            id=raid_id,
             boss_pet_id=payload.boss_pet_id,
             boss=payload.boss_pet_id,
             hp_max=payload.hp_max,
@@ -401,15 +391,15 @@ async def raid_update(payload: RaidUpdatePayload):
             status=payload.status,
             stars=payload.difficulty_stars,
             participants=participants,
-            pending_hits=[],              # la file d'attaques repart propre
+            pending_hits=[],              # la file d'attaques repart propre pour ce raid
             current_turn=payload.current_turn,
-            chat=old_chat, # ✅ on réinjecte le tchat
+            chat=old_chat,
             upside_down_active=payload.upside_down_active,
             upside_down_turns_left=payload.upside_down_turns_left,
         )
     else:
         # Même raid → on met juste à jour les champs volatils
-        rs = raid_state
+        rs = existing
         rs.boss_pet_id = payload.boss_pet_id
         rs.boss = payload.boss_pet_id
         rs.hp_max = payload.hp_max
@@ -423,9 +413,15 @@ async def raid_update(payload: RaidUpdatePayload):
         rs.upside_down_active = payload.upside_down_active
         rs.upside_down_turns_left = payload.upside_down_turns_left
         # rs.chat reste inchangé
-        raid_state = rs
+        # rs.pending_hits reste inchangé aussi
+
+    # ✅ on sauvegarde dans le dict multi-raid
+    raid_states[raid_id] = rs
+    # ✅ on garde aussi la compatibilité avec l’ancien code
+    raid_state = rs
 
     return {"ok": True}
+
 
 
 
@@ -484,30 +480,30 @@ async def resolve_user(name: str):
 
 
 @app.get("/raid/list")
-async def raid_list_endpoint():
+async def raid_list():
     """
-    Renvoie la liste des raids disponibles pour l'écran de sélection.
-    Pour l'instant : 0 ou 1 raid (celui dans raid_state), uniquement s'il est en cours.
+    Retourne la liste des raids 'running' connus par l'API.
+    Utilisé par ta page de sélection des raids.
     """
-    global raid_state
+    out = []
+    for rs in raid_states.values():
+        if rs.status != "running":
+            continue
 
-    # pas de raid, ou raid pas en cours => rien à afficher
-    if raid_state is None or raid_state.status != "running":
-        return []
+        out.append({
+            "id": rs.id,
+            "boss_pet_id": rs.boss_pet_id,
+            "hp_current": rs.hp_current,
+            "hp_max": rs.hp_max,
+            "stars": rs.stars,
+            "start": rs.start,
+            "end": rs.end,
+        })
 
-    rs = raid_state
+    # tri optionnel par date de début (du plus récent au plus ancien)
+    out.sort(key=lambda r: r["start"], reverse=True)
+    return out
 
-    return [{
-        "id": rs.id or "default",
-        "boss_pet_id": rs.boss_pet_id,
-        "boss": rs.boss,
-        "hp_current": rs.hp_current,
-        "hp_max": rs.hp_max,
-        "stars": rs.stars,
-        "status": rs.status,
-        "start": rs.start,
-        "end": rs.end,
-    }]
 
 
 
@@ -626,6 +622,7 @@ async def raid_consume_hits():
 
     raid_state.pending_hits = []
     return {"ok": True}
+
 
 
 
