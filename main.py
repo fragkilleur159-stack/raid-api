@@ -165,30 +165,47 @@ async def root():
 
 # ---------- LISTE DES RAIDS ----------
 @app.get("/raid/list")
-async def raid_list():
+async def raid_list(
+    include_finished: bool = Query(False, description="Inclure les raids terminés"),
+    include_idle: bool = Query(False, description="Inclure les raids inactifs/idle"),
+):
     """
-    Retourne la liste des raids connus (en cours ou terminés).
+    Retourne la liste des raids connus.
+
+    ✅ Par défaut: uniquement les raids en cours (running).
     """
     res = []
     for r in raid_states.values():
+        st = getattr(r, "status", None)
+
+        # Par défaut on ne garde que les raids en cours
+        if not include_finished and not include_idle:
+            if st != "running":
+                continue
+        else:
+            if not include_finished and st == "finished":
+                continue
+            if not include_idle and st not in ("running", "finished"):
+                continue
+
         res.append({
             "id": r.id,
             "boss_pet_id": r.boss_pet_id,
             "boss": r.boss,
             "hp_max": r.hp_max,
             "hp_current": r.hp_current,
-            "status": r.status,
+            "status": st,
             "stars": r.stars,
             "start": r.start,
             "end": r.end,
             "label": r.boss or f"Raid {r.id}",
         })
-    # on trie du plus récent au plus ancien
+
+    # du plus récent au plus ancien
     res.sort(key=lambda x: (x.get("start") or 0), reverse=True)
     return res
 
 
-# ---------- ÉTAT D'UN RAID ----------
 @app.get("/raid/state")
 async def raid_state_endpoint(raid_id: str = Query(...)):
     """
@@ -475,47 +492,3 @@ async def raid_update(payload: RaidUpdatePayload):
 
     raid_states[raid_id] = raid
     return {"ok": True}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
